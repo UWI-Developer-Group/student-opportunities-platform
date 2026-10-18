@@ -1,45 +1,50 @@
-import mongoose, { Schema, Types } from "mongoose";
+import { Schema, Types } from "mongoose";
+import { baseSchemaOptions, enumValues, getOrCreateModel } from "./shared";
 
-export const ORGANIZATION_STATUSES = [
-  "pending",
-  "active",
-  "rejected",
-  "suspended",
-] as const;
+export const OrganizationStatus = {
+  PENDING: "pending",
+  ACTIVE: "active",
+  REJECTED: "rejected",
+  SUSPENDED: "suspended",
+} as const;
+export type OrganizationStatus =
+  (typeof OrganizationStatus)[keyof typeof OrganizationStatus];
 
-export interface Organization {
-  _id: Types.ObjectId;
+export interface IOrganization {
   name: string;
   slug: string;
   description?: string;
   logoUrl?: string;
   websiteUrl?: string;
-  contactEmail?: string;
-  status: (typeof ORGANIZATION_STATUSES)[number];
+  contactEmail: string;
+  status: OrganizationStatus;
   verifiedAt?: Date;
+  verifiedBy?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const organizationSchema = new Schema<Organization>(
+const organizationSchema = new Schema<IOrganization>(
   {
-    name: { type: String, required: true, trim: true },
-    slug: { type: String, required: true, trim: true, unique: true },
-    description: { type: String, trim: true },
+    name: { type: String, required: true, trim: true, maxlength: 120 },
+    slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    description: { type: String, trim: true, maxlength: 2000 },
     logoUrl: { type: String, trim: true },
     websiteUrl: { type: String, trim: true },
-    contactEmail: { type: String, trim: true, lowercase: true },
+    contactEmail: { type: String, required: true, lowercase: true, trim: true },
     status: {
       type: String,
-      enum: ORGANIZATION_STATUSES,
-      default: "pending",
-      required: true,
+      enum: enumValues(OrganizationStatus),
+      default: OrganizationStatus.PENDING,
+      index: true,
     },
     verifiedAt: { type: Date },
+    verifiedBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
-  { timestamps: true },
+  baseSchemaOptions
 );
 
-export const OrganizationModel =
-  mongoose.models.Organization ??
-  mongoose.model<Organization>("Organization", organizationSchema);
+export const Organization = getOrCreateModel<IOrganization>(
+  "Organization",
+  organizationSchema
+);

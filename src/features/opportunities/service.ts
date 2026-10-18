@@ -1,11 +1,11 @@
 import "server-only";
-import {
-  findPublicOpportunities,
-  findPublicOpportunityBySlug,
-} from "@/features/opportunities/queries";
+import { opportunityFiltersSchema } from "./filters";
+import { findPublicOpportunities, findPublicOpportunityBySlug } from "./queries";
 
-export async function listPublicOpportunities() {
-  return findPublicOpportunities();
+// Accepts raw URL params, e.g. await searchParams, or { category: "internship" }.
+export async function listPublicOpportunities(rawFilters: unknown = {}) {
+  const filters = opportunityFiltersSchema.parse(rawFilters ?? {});
+  return findPublicOpportunities(filters);
 }
 
 export async function getPublicOpportunity(slug: string) {

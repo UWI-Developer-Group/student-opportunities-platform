@@ -1,64 +1,70 @@
-import mongoose, { Schema, Types } from "mongoose";
+import { Schema, Types } from "mongoose";
+import { baseSchemaOptions, getOrCreateModel } from "./shared";
 
-export const OPPORTUNITY_STATUSES = ["draft", "published", "archived"] as const;
+import {
+  OpportunityCategory,
+  OpportunityStatus,
+  OpportunityType,
+  valuesOf,
+} from "@/features/opportunities/constants";
 
-export interface Opportunity {
-  _id: Types.ObjectId;
+// Re-exported for existing imports.
+export { OpportunityCategory, OpportunityStatus, OpportunityType };
+
+export interface IOpportunity {
   title: string;
   slug: string;
   summary: string;
-  description?: string;
+  description: string;
   imageUrl?: string;
   organizationId: Types.ObjectId;
-  category: string;
-  type: string;
+  category: OpportunityCategory;
+  type: OpportunityType;
+  location?: string;
   applicationUrl: string;
+  additionalLinks: string[];
   deadline?: Date;
-  status: (typeof OPPORTUNITY_STATUSES)[number];
+  status: OpportunityStatus;
   publishedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const opportunitySchema = new Schema<Opportunity>(
+const opportunitySchema = new Schema<IOpportunity>(
   {
-    title: { type: String, required: true, trim: true },
-    slug: { type: String, required: true, trim: true, unique: true },
-    summary: { type: String, required: true, trim: true },
-    description: { type: String, trim: true },
+    title: { type: String, required: true, trim: true, maxlength: 160 },
+    slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    summary: { type: String, required: true, trim: true, maxlength: 300 },
+    description: { type: String, required: true, trim: true },
     imageUrl: { type: String, trim: true },
     organizationId: {
       type: Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
     },
-    category: { type: String, required: true, trim: true },
-    type: { type: String, required: true, trim: true },
+    category: { type: String, enum: valuesOf(OpportunityCategory), required: true },
+    type: { type: String, enum: valuesOf(OpportunityType), required: true },
+    location: { type: String, trim: true },
     applicationUrl: { type: String, required: true, trim: true },
+    additionalLinks: { type: [String], default: [] },
     deadline: { type: Date },
     status: {
       type: String,
-      enum: OPPORTUNITY_STATUSES,
-      default: "draft",
-      required: true,
+      enum: valuesOf(OpportunityStatus),
+      default: OpportunityStatus.DRAFT,
     },
     publishedAt: { type: Date },
   },
-  { timestamps: true },
+  baseSchemaOptions
 );
 
-opportunitySchema.index({ status: 1, publishedAt: -1 });
-opportunitySchema.index({ organizationId: 1, status: 1 });
-opportunitySchema.index({ category: 1, status: 1, publishedAt: -1 });
+opportunitySchema.index({ status: 1, publishedAt: -1 });          // public listing
+opportunitySchema.index({ organizationId: 1, status: 1 });        // dashboard + org page
+opportunitySchema.index({ category: 1, status: 1 });              // category pages
+opportunitySchema.index({ deadline: 1 });                         // deadline filter
+opportunitySchema.index({ title: "text", summary: "text", description: "text" }); // search
 
-export const OpportunityModel =
-  mongoose.models.Opportunity ??
-  mongoose.model<Opportunity>("Opportunity", opportunitySchema);
-
-export type ActiveOrganizationSummary = {
-  _id: Types.ObjectId;
-  name: string;
-  slug: string;
-  logoUrl?: string;
-  status: "active";
-};
+export const Opportunity = getOrCreateModel<IOpportunity>(
+  "Opportunity",
+  opportunitySchema
+);

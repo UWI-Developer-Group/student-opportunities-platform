@@ -10,6 +10,6 @@ export type AppEnv = z.infer<typeof envSchema>;
 export function getEnv(): AppEnv {
   return envSchema.parse({
     MONGODB_URI: process.env.MONGODB_URI,
-    APP_URL: process.env.APP_URL,
+    APP_URL: process.env.APP_URL || "http://localhost:3000" ,
   });
 }

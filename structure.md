@@ -26,11 +26,11 @@
     Express server unless a concrete requirement emerges.
 -   **Rendering:** Prefer Server Components for public pages and data
     reads. Use Client Components only where browser interaction is
-    needed.
+    needed. Cache Components is enabled (see section 6).
 -   **Mutations:** Use Server Actions for app-internal form submissions
     and mutations. Add Route Handlers only for endpoints that genuinely
-    need an HTTP/API interface, such as an auth provider callback or a
-    future external consumer.
+    need an HTTP/API interface, such as an auth provider callback, a
+    health check, or a future external consumer.
 -   **Authentication:** Use a maintained auth library. Final provider
     setup and exact callback route depend on the library/version
     selected; do not assume a legacy NextAuth v4 API.
@@ -42,15 +42,19 @@
 -   **Image storage:** Store image URLs and related metadata in MongoDB;
     store image files with an image-storage provider (for example,
     Cloudinary or object storage), not as large binary files in MongoDB.
--   **Testing:** Each feature owner writes tests for their own behavior.
-    Add shared integration/end-to-end tests for critical user journeys
-    as the project matures.
+-   **Testing:** Vitest. Database tests run against an in-memory MongoDB
+    by default, or a dedicated test database via `TEST_MONGODB_URI`.
+    Each feature owner writes tests for their own behavior. Add shared
+    end-to-end tests for critical user journeys as the project matures
+    (E2E framework not yet chosen).
 
 ### Important access rule
 
 A listing is publicly visible only when **the opportunity is published
 and its organization is active**. Enforce this in server-side
-queries/services, not only in the UI.
+queries/services, not only in the UI. This rule is implemented in
+`features/opportunities/queries.ts` and covered by
+`tests/opportunities/visibility.test.ts`.
 
 ------------------------------------------------------------------------
 
@@ -129,6 +133,8 @@ student-opportunities-platform/
 │   │   │           └── page.tsx
 │   │   │
 │   │   └── api/
+│   │       ├── health/
+│   │       │   └── route.ts
 │   │       └── auth/
 │   │           └── [...auth]/
 │   │               └── route.ts
@@ -151,10 +157,16 @@ student-opportunities-platform/
 │   │   │   │   ├── OpportunityForm.tsx
 │   │   │   │   └── ApplyButton.tsx
 │   │   │   ├── actions.ts
+│   │   │   ├── actor.ts
+│   │   │   ├── commands.ts
+│   │   │   ├── constants.ts
+│   │   │   ├── errors.ts
+│   │   │   ├── filters.ts
 │   │   │   ├── queries.ts
 │   │   │   ├── schemas.ts
 │   │   │   ├── service.ts
-│   │   │   └── service.test.ts
+│   │   │   ├── slug.ts
+│   │   │   └── types.ts
 │   │   │
 │   │   ├── organizations/
 │   │   │   ├── components/
@@ -162,8 +174,7 @@ student-opportunities-platform/
 │   │   │   │   └── OrganizationProfileForm.tsx
 │   │   │   ├── actions.ts
 │   │   │   ├── schemas.ts
-│   │   │   ├── service.ts
-│   │   │   └── service.test.ts
+│   │   │   └── service.ts
 │   │   │
 │   │   └── auth/
 │   │       ├── components/
@@ -174,6 +185,7 @@ student-opportunities-platform/
 │   │       └── schemas.ts
 │   │
 │   ├── models/
+│   │   ├── shared.ts
 │   │   ├── User.ts
 │   │   ├── Organization.ts
 │   │   └── Opportunity.ts
@@ -185,8 +197,17 @@ student-opportunities-platform/
 │       └── utils.ts
 │
 ├── tests/
-│   ├── integration/
-│   └── e2e/
+│   ├── helpers/
+│   │   ├── db.ts
+│   │   └── factories.ts
+│   ├── stubs/
+│   │   └── server-only.ts
+│   ├── models/
+│   │   └── database.test.ts
+│   └── opportunities/
+│       ├── commands.test.ts
+│       ├── schemas.test.ts
+│       └── visibility.test.ts
 │
 ├── .env.example
 ├── .gitignore
@@ -199,6 +220,7 @@ student-opportunities-platform/
 ├── package-lock.json
 ├── postcss.config.mjs
 ├── tsconfig.json
+├── vitest.config.ts
 └── structure.md
 ```
 
@@ -213,7 +235,7 @@ student-opportunities-platform/
 3.  The root homepage is `src/app/page.tsx`, which maps to `/`. Do not
     create another page that also maps to `/` inside a route group.
 4.  `src/features/` groups code by business domain. Feature components,
-    schemas, actions, queries, services, and tests live together.
+    schemas, actions, queries, services, and commands live together.
 5.  `src/models/` contains Mongoose models. Keep model definitions and
     database schema concerns separate from UI components.
 6.  `src/lib/` contains shared infrastructure and utilities used across
@@ -224,8 +246,11 @@ student-opportunities-platform/
     components.
 8.  `scripts/` contains local/operational scripts, not request handlers.
     Never commit real credentials or production secrets.
-9.  `tests/` is for cross-feature integration and end-to-end tests.
-    Feature-specific unit tests can remain next to their feature code.
+9.  `tests/` holds all tests, organized to mirror the code they cover:
+    `tests/models/` for the database layer and `tests/<feature>/` for
+    each feature. `tests/helpers/` has the shared test database and data
+    factories; `tests/stubs/` has stand-ins for modules that cannot run
+    outside Next.js. E2E tests, if adopted, get their own `tests/e2e/`.
 10. The auth route shown is a **placeholder**. The actual route name and
     handler shape must match the chosen authentication library and
     version.
@@ -236,6 +261,9 @@ student-opportunities-platform/
     versions. Confirm the convention for the installed version before
     adding `middleware.ts` or `proxy.ts`; neither should replace
     server-side authorization checks.
+13. `api/health/route.ts` pings the database and returns
+    `{ "status": "ok" }` (or a 503). It is useful for setup checks and
+    hosting uptime monitors.
 
 ------------------------------------------------------------------------
 
@@ -274,6 +302,50 @@ rules, or complicated write logic directly in page components.
 
 Owns opportunity discovery and listing management.
 
+**Reads (public discovery)**
+
+-   `queries.ts`: database aggregation for public visibility, filtering,
+    keyword search, sorting, and pagination. Internal to the feature;
+    pages call `service.ts`.
+-   `service.ts`: public read entry points: `listPublicOpportunities`
+    (accepts raw URL params and validates them) and
+    `getPublicOpportunity(slug)`.
+-   `filters.ts`: Zod schema for URL query params (`q`, `category`,
+    `type`, `organization`, `deadlineBefore`, `page`, `limit`). Invalid
+    values are ignored rather than throwing.
+-   `types.ts`: plain `PublicOpportunity` and `PaginatedResult` types.
+    Results use string `id` values and are safe to pass to Client
+    Components.
+
+**Writes (listing management)**
+
+-   `commands.ts`: `createOpportunity`, `updateOpportunity`,
+    `publishOpportunity`, and `archiveOpportunity`. Each takes the
+    current user as an `Actor` plus raw input, enforces ownership and
+    organization-status rules, and throws `OpportunityError` (codes
+    `forbidden`, `not_found`, `invalid_state`) or a `ZodError`.
+-   `actor.ts`: the `Actor` type (`id`, `role`, `organizationId?`).
+    `features/auth/permissions.ts` should produce this from the session.
+-   `errors.ts`: `OpportunityError` and its codes, for actions to map to
+    user-facing messages.
+-   `slug.ts`: slug generation (plain slug, with a short random suffix
+    on collision).
+-   `actions.ts`: Server Actions used by forms. Authenticate the caller,
+    build the `Actor`, call `commands.ts`, map errors, and revalidate
+    affected paths.
+
+**Shared**
+
+-   `constants.ts`: statuses, categories, and types. **Must not import
+    mongoose or any server-only module**, because client forms and
+    filters import it. The Mongoose model and the Zod schemas both build
+    their enums from it, so adding a category is a one-line change.
+-   `schemas.ts`: Zod schemas for create/update input. Fields the
+    server controls (`slug`, `status`, `publishedAt`, `organizationId`)
+    are deliberately not part of them. Links must be `http(s)`.
+
+**Components**
+
 -   `components/OpportunityCard.tsx`: compact listing summary used in
     grids and homepage sections.
 -   `components/OpportunityGrid.tsx`: responsive list/grid presentation,
@@ -284,17 +356,10 @@ Owns opportunity discovery and listing management.
     client-side UX validation; server-side validation remains mandatory.
 -   `components/ApplyButton.tsx`: clearly labeled external application
     link.
--   `schemas.ts`: Zod schemas for create/update and query/filter inputs.
--   `queries.ts`: read-oriented discovery functions (search, filters,
-    pagination, public visibility constraints).
--   `service.ts`: business rules and database operations for creating,
-    updating, publishing, archiving, and retrieving opportunities.
--   `actions.ts`: Server Actions used by forms. Authenticate the caller,
-    validate input, call the service, and revalidate affected paths.
--   `service.test.ts`: tests for opportunity business rules.
 
-Avoid duplicating logic between `actions.ts` and `service.ts`. Actions
-are the request boundary; services own reusable business rules.
+Avoid duplicating logic between `actions.ts` and `commands.ts`. Actions
+are the request boundary; commands and queries own reusable business
+rules.
 
 ### `src/features/organizations/`
 
@@ -311,8 +376,8 @@ Owns organization profile and verification workflows.
 -   `actions.ts`: authenticated actions for organization members and
     admin verification actions where appropriate. If admin actions grow
     substantially, move them into a dedicated admin feature later.
--   `service.test.ts`: tests for organization status and ownership
-    rules.
+
+Tests for this feature go in `tests/organizations/`.
 
 An organization starts as `pending`. An admin verifies it and changes it
 to `active` or rejects it. Only active organizations can publish
@@ -328,7 +393,8 @@ Owns authentication-related form behavior and authorization helpers.
     benefits from app-owned Server Actions. Follow that library's
     recommended flow.
 -   `permissions.ts`: reusable checks such as requiring an authenticated
-    user, an organization member, or an admin.
+    user, an organization member, or an admin. These return the
+    `Actor` that opportunity commands expect.
 
 Authentication proves who the user is; authorization determines what
 that user is allowed to do. Both must be considered.
@@ -337,23 +403,25 @@ that user is allowed to do. Both must be considered.
 
 Mongoose model definitions and database-level schema rules. Models
 should define field types, defaults, enums, validation where
-appropriate, timestamps, and indexes. Use a model-reuse pattern that
-avoids model recompilation issues during Next.js development.
+appropriate, timestamps, and indexes. `shared.ts` holds the common
+schema options and `getOrCreateModel`, which avoids model recompilation
+errors during Next.js development; use it for every model.
 
-#### `User.ts` --- proposed fields
+#### `User.ts` --- fields
 
 -   `name`
 -   `email` (normalized and unique)
--   `passwordHash` only if credentials-based authentication is selected;
-    otherwise use the auth provider's identity fields
+-   `passwordHash` (hidden from queries by default) only if
+    credentials-based authentication is selected; otherwise
+    `authProviderId` for the auth provider's identity
 -   `role`: `org_member` or `admin` for the MVP
--   `organizationId` for organization members; absent for admins
+-   `organizationId`: required for `org_member`, absent for admins
 -   timestamps (`createdAt`, `updatedAt`)
 
 Do not let public registration choose the `admin` role. Admin
 provisioning must be a trusted operational process.
 
-#### `Organization.ts` --- proposed fields
+#### `Organization.ts` --- fields
 
 -   `name`
 -   `slug` (unique)
@@ -361,38 +429,44 @@ provisioning must be a trusted operational process.
 -   `logoUrl`
 -   `websiteUrl`
 -   `contactEmail`
--   `status`: `pending`, `active`, `rejected`, `suspended`
--   `verifiedAt` and optionally `verifiedBy`
+-   `status`: `pending` (default), `active`, `rejected`, `suspended`
+-   `verifiedAt` and `verifiedBy`
 -   timestamps
 
 If an organization needs multiple members later, keep membership
-explicit rather than assuming one user forever owns it.
+explicit rather than assuming one user forever owns it. Today, several
+users can reference the same organization through `organizationId`;
+there is no invite or membership flow yet.
 
-#### `Opportunity.ts` --- proposed fields
+#### `Opportunity.ts` --- fields
 
 -   `title`
--   `slug` (unique)
--   `summary` and/or `description`
+-   `slug` (unique, generated by the server)
+-   `summary` and `description`
 -   `imageUrl` (optional)
 -   `organizationId`
--   `category`
--   `type` (use a documented enum agreed by the team)
--   `location` (optional; define whether it is in-person, remote,
-    hybrid, or a place)
+-   `category`: `scholarship`, `internship`, `competition`,
+    `fellowship`, `club`, `event`, `other`
+-   `type`: `online`, `in_person`, `hybrid`
+-   `location` (optional free text)
 -   `applicationUrl`
--   `additionalLinks` (optional list of labeled URLs)
+-   `additionalLinks` (optional list of URLs; plain strings for now)
 -   `deadline` (optional)
--   `status`: `draft`, `published`, `archived`
+-   `status`: `draft` (default), `published`, `archived`
 -   `publishedAt` (set when published; do not substitute `createdAt`)
 -   timestamps
 
-The final fields and enum values should be agreed in a shared data
-contract before parallel implementation begins.
+Indexes: unique `slug`; `{ status, publishedAt }` for the public
+listing; `{ organizationId, status }` for dashboards and organization
+pages; `{ category, status }`; `deadline`; and a text index over
+title/summary/description (not used by the current regex search; see
+section 11).
 
 ### `src/lib/`
 
 -   `db.ts`: connect to MongoDB and safely reuse the connection in
-    development. Do not open a new connection for every query.
+    development. Do not open a new connection for every query. Server
+    only.
 -   `auth.ts`: server-side auth configuration and helpers, aligned with
     the selected library.
 -   `env.ts`: validate required environment variables with Zod and fail
@@ -413,24 +487,36 @@ contract before parallel implementation begins.
 
 ### `scripts/`
 
--   `seed.ts`: insert predictable development/demo organizations and
-    opportunities. Make the script safe to rerun or document how to
-    reset its data.
+-   `seed.ts`: upserts predictable development/demo data (one admin,
+    five organizations in different statuses, and thirteen opportunities
+    covering every status and category). It never deletes anything, so
+    it is safe to rerun. Run with `npm run seed`.
 -   `create-admin.ts`: create or promote an admin through a deliberate
     trusted command. Read secrets from environment variables or a secure
     prompt; never hardcode passwords.
--   Scripts must load the same environment configuration as the app and
-    use the shared database connection/model definitions where
-    practical.
+-   Scripts cannot import modules that use `import "server-only"`
+    (including `src/lib/db.ts`), because that import throws outside
+    Next.js. `seed.ts` connects with Mongoose directly; follow the same
+    approach. Importing the models is fine. Scripts must refuse to run
+    when `NODE_ENV=production` unless explicitly designed for it.
 
 ### `tests/`
 
--   `integration/`: test important interactions between services,
-    database models, and permissions.
--   `e2e/`: test real user journeys in a browser if an E2E framework is
-    adopted.
--   Unit tests for isolated feature logic can live beside the
-    implementation, such as `features/opportunities/service.test.ts`.
+-   `models/`: database-layer tests (defaults, validation, unique
+    indexes, status transitions).
+-   `<feature>/`: tests for a feature's queries, commands, and schemas
+    (for example `tests/opportunities/`). Put new features' tests in
+    their own folder.
+-   `helpers/db.ts`: starts an in-memory MongoDB (or uses
+    `TEST_MONGODB_URI`), connects through the app's real
+    `connectToDatabase()`, clears data between tests, and disconnects.
+    It refuses to run on any database whose name does not contain
+    "test".
+-   `helpers/factories.ts`: small functions that create organizations,
+    opportunities, and users for tests.
+-   `stubs/server-only.ts`: empty module that `vitest.config.ts`
+    substitutes for `server-only` during tests.
+-   Run all tests with `npm test`.
 
 ------------------------------------------------------------------------
 
@@ -492,6 +578,10 @@ listing by default.
   organization profile                      assigned          administration
                                             organization      
 
+  Create an opportunity   No                Yes, if           No
+                                            organization is   
+                                            active            
+
   Publish an opportunity  No                Yes, if           Yes, for
                                             organization is   moderation/administration
                                             active and owns   
@@ -511,7 +601,9 @@ listing by default.
 Every protected Server Action and service operation must check
 authorization server-side. Hiding a button is not access control. Never
 trust a client-submitted `organizationId`, `role`, or status without
-verifying that the caller is allowed to use it.
+verifying that the caller is allowed to use it. The opportunity commands
+already take these from the `Actor` and the stored record, never from
+form input.
 
 ------------------------------------------------------------------------
 
@@ -534,9 +626,27 @@ verifying that the caller is allowed to use it.
     component needs client-side state, event handlers, effects, or
     browser APIs.
 -   Do not import server-only database/auth modules into Client
-    Components.
+    Components. Files that touch the database start with
+    `import "server-only"`.
+-   Anything a Client Component needs (constants, Zod schemas, plain
+    types) must live in a file with no server imports. That is why
+    `constants.ts`, `filters.ts`, `schemas.ts`, and `types.ts` import
+    nothing from `models/` or `lib/db.ts`.
 -   Keep feature boundaries clear. Avoid circular imports between
     features.
+
+### Next.js Cache Components
+
+Cache Components is enabled in `next.config.ts`.
+
+-   Reading request data (`searchParams`, cookies, headers) or querying
+    the database during rendering is dynamic. Wrap that part of a page
+    in `<Suspense>` with a fallback (for example the grid's loading
+    state), or the build reports an error.
+-   Route segment config such as `export const dynamic = ...` is not
+    allowed. Route Handlers are dynamic by default.
+-   In Next.js 15 and later, `searchParams` is a Promise. Pass
+    `await searchParams` to `listPublicOpportunities`.
 
 ### Validation and security
 
@@ -545,13 +655,15 @@ verifying that the caller is allowed to use it.
 -   Normalize email addresses and validate URLs before saving.
 -   Permit only expected URL protocols (normally `https:` and, where
     justified, `http:`) for external links. Do not allow `javascript:`
-    URLs.
+    URLs. The opportunity schemas already enforce `http(s)` only.
 -   Use a maintained password/auth solution; never implement custom
     password storage casually.
 -   Keep secrets in local environment variables or the deployment secret
     manager. Never commit `.env.local`.
 -   Do not expose database connection strings, password hashes, internal
     moderation notes, or private contact details in public responses.
+    Public queries project an explicit list of fields; add to that list
+    deliberately.
 -   Apply public visibility constraints in database queries/services,
     not just in the page.
 -   Use safe error messages for users and server-side logs for
@@ -561,7 +673,9 @@ verifying that the caller is allowed to use it.
 
 ### Database and data rules
 
--   Use Mongoose models and a shared database connection helper.
+-   Use Mongoose models and a shared database connection helper. Call
+    `await connectToDatabase()` before queries; models do not connect on
+    their own.
 -   Add indexes for real query patterns, such as unique slugs/emails and
     opportunity status, publication date, category, and organization
     reference.
@@ -574,7 +688,18 @@ verifying that the caller is allowed to use it.
 -   Public discovery must exclude drafts, archived items, and
     opportunities belonging to inactive organizations.
 -   Use pagination for listing pages rather than returning an unbounded
-    number of records.
+    number of records. The public list defaults to 12 per page, maximum
+    50.
+-   Never trust IDs from the client without checking they are valid
+    ObjectIds; commands return `not_found` for malformed IDs.
+
+### Testing
+
+-   New features add tests under `tests/<feature>/`. Run `npm test`.
+-   Tests must never run against real data. Use the in-memory database
+    or a database whose name contains "test".
+-   Authorization rules deserve explicit tests (for example "Org A
+    cannot edit Org B", "suspended organization cannot publish").
 
 ### Git and pull requests
 
@@ -584,8 +709,8 @@ verifying that the caller is allowed to use it.
     `docs/contributing`.
 -   Open a pull request for changes; request at least one teammate
     review where team size permits.
--   Before merging, run lint, tests, and a production build when
-    feasible.
+-   Before merging, run
+    `npm run lint && npx tsc --noEmit && npm test && npm run build`.
 -   Commit `package-lock.json` and keep dependency changes intentional.
 -   Do not commit build output, `node_modules`, real secrets, or local
     environment files.
@@ -607,6 +732,10 @@ NODE_ENV=development
 MONGODB_URI=mongodb://127.0.0.1:27017/student_opportunities
 APP_URL=http://localhost:3000
 
+# Optional: run tests against a dedicated database instead of the
+# in-memory one. The database name must contain "test".
+# TEST_MONGODB_URI=mongodb://127.0.0.1:27017/student_opportunities_test
+
 # Add only the variables required by the chosen auth library/provider.
 # Example names below are placeholders, not a finalized auth configuration:
 AUTH_SECRET=
@@ -615,6 +744,10 @@ AUTH_URL=http://localhost:3000
 # Add provider-specific credentials only if that provider is selected.
 # Add image-storage credentials only after the provider is selected.
 ```
+
+Always include the database name in `MONGODB_URI`. Without it, MongoDB
+uses a database called `test`, and teammates end up sharing it by
+accident.
 
 Keep `.env.example` synchronized with the actual variables read by
 `src/lib/env.ts`. Do not copy production secrets into issues, pull
@@ -722,52 +855,61 @@ Before marking a feature complete, confirm:
 
 ------------------------------------------------------------------------
 
-## 11. Decisions still to confirm
+## 11. Decisions
 
-The structure is a starting contract; these decisions should be made by
-the team before implementing dependent features:
+Status of the decisions that affect dependent features. When a decision
+changes this structure, update this document in the same pull request as
+the implementation.
 
-1.  Which authentication library/provider will be used?
-2.  Can one organization have multiple member accounts in the first
-    release?
-3.  Which opportunity categories and types are allowed?
-4.  Will opportunity images be optional URLs initially, or will uploads
-    be supported in the MVP?
-5.  Which test runner and E2E framework will be used?
-6.  Which deployment host and MongoDB provider will be used?
-7.  What is the exact rule for expired deadlines: remain visible with an
-    "expired" label, or be hidden automatically?
-8.  What evidence or checks are required for an organization to become
-    verified?
-
-When a decision changes this structure, update this document in the same
-pull request as the implementation.
+| # | Decision | Status |
+|---|----------|--------|
+| 1 | Authentication library/provider | **Open.** `User` supports either `passwordHash` or `authProviderId`. Seed users have neither until this is decided. |
+| 2 | Multiple member accounts per organization | **Open.** The data model allows it (several users can share an `organizationId`), but there is no invite or membership flow. |
+| 3 | Opportunity categories and types | **Decided.** Categories: scholarship, internship, competition, fellowship, club, event, other. Types: online, in_person, hybrid. Defined in `features/opportunities/constants.ts`. Clubs recruiting for roles and general membership share the single `club` category. |
+| 4 | Images: URLs only, or uploads | **Open.** Currently an optional `imageUrl`. |
+| 5 | Test runner and E2E framework | **Test runner decided:** Vitest with `mongodb-memory-server`. **E2E framework open.** |
+| 6 | Deployment host and MongoDB provider | **Open.** Development uses MongoDB Atlas. |
+| 7 | Expired deadlines | **Open.** Currently expired listings stay publicly visible with no label. Hiding them is a one-line change in `opportunityMatch` in `queries.ts`. |
+| 8 | Evidence required to verify an organization | **Open.** |
+| 9 | `additionalLinks` shape | **Open.** Currently plain URL strings. Labeled links (`{ label, url }`) would change the model, the schemas, and the form. Decide before the opportunity form is built. |
+| 10 | Keyword search implementation | **Interim.** An escaped, case-insensitive regex over title, summary, description, and organization name. It cannot use an index, which is fine at MVP size. If it becomes slow, store `organizationName` on the opportunity and switch to the text index. |
 
 ------------------------------------------------------------------------
 
-## 12. First files to implement
+## 12. Implementation status
 
-Do not create every file in the tree as an empty placeholder. Start with
-the files needed for the first vertical slice:
+Done:
 
-1.  `src/lib/env.ts`
-2.  `src/lib/db.ts`
-3.  `src/models/Organization.ts`
-4.  `src/models/Opportunity.ts`
-5.  `src/models/User.ts` (once the auth approach is agreed)
-6.  `src/features/opportunities/schemas.ts`
-7.  `src/features/opportunities/queries.ts`
-8.  `src/features/opportunities/service.ts`
-9.  `src/app/page.tsx`
-10. `src/app/(public)/opportunities/page.tsx`
-11. `src/app/(public)/opportunities/[slug]/page.tsx`
-12. `scripts/seed.ts`
-13. `.env.example`
-14. `README.md` and `CONTRIBUTING.md`
+1.  `src/lib/env.ts`, `src/lib/db.ts`
+2.  `src/models/` (`shared.ts`, `User.ts`, `Organization.ts`,
+    `Opportunity.ts`)
+3.  `src/features/opportunities/` backend: `schemas.ts`, `filters.ts`,
+    `queries.ts`, `service.ts`, `commands.ts`, and supporting files
+4.  `src/app/api/health/route.ts`
+5.  `scripts/seed.ts`
+6.  Test setup and tests (`tests/`, `vitest.config.ts`)
+7.  `.env.example`, `README.md`
+
+Scaffolded, not yet connected to the database:
+
+-   `src/app/page.tsx`
+-   `src/app/(public)/opportunities/page.tsx`
+-   `src/app/(public)/opportunities/[slug]/page.tsx`
+
+Not started:
+
+-   Authentication (`lib/auth.ts`, `features/auth/permissions.ts`)
+-   Organization registration, profile, and verification
+-   `features/opportunities/actions.ts` and the dashboard and admin
+    screens
+-   `scripts/create-admin.ts`
+-   `CONTRIBUTING.md`
 
 **First end-to-end goal:** seed an active organization and a published
 opportunity, display the opportunity publicly, open its detail page, and
-follow its external application link. Then implement organization
+follow its external application link. The data layer for this is done;
+the pages need to call `listPublicOpportunities` and
+`getPublicOpportunity`. Then implement organization
 registration/verification and the protected listing-management flow.
 
 ------------------------------------------------------------------------
