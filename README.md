@@ -1,117 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-
 # Student Opportunities Platform
 
-## Project Overview
+A public-first platform for discovering internships, scholarships,
+competitions, jobs, events, and other student-focused opportunities.
+Visitors can browse without accounts; organizations will manage listings
+after an authentication approach is selected.
 
-A discovery platform where students can discover opportunities
-such as internships, scholarships, competitions, jobs, events,
-and other student-focused opportunities.
+## Technology
 
-Organizations can create and manage opportunity listings.
+- Next.js App Router, React, and TypeScript
+- Tailwind CSS v4
+- MongoDB with Mongoose
+- Zod for validation
 
-Students do not have accounts in the initial version.
+## Getting started
 
-## Tech Stack
+1. Install dependencies with `npm install`.
+2. Copy `.env.example` to `.env.local` and configure `MONGODB_URI` and
+   `APP_URL`.
+3. Start the development server with `npm run dev`.
+4. Open [http://localhost:3000](http://localhost:3000).
 
-- Next.js
-- React
-- TypeScript
-- Tailwind CSS
-- MongoDB
-- Mongoose
-- Zod
-- Node.js
+The public routes and initial opportunity data modules are scaffolded.
+The routes are not yet connected to the database; adding seed data and
+completing the public discovery flow are the next implementation steps.
 
-## Architecture
+## Project structure
 
-### `src/app`
+- `src/app/`: route entry points, layouts, and route-level states.
+- `src/components/`: shared UI and layout components.
+- `src/features/`: feature-specific schemas, queries, services, and UI.
+- `src/lib/`: shared infrastructure such as environment validation and
+  database connection management.
+- `src/models/`: Mongoose model definitions.
+- `structure.md`: architecture contract, milestones, and outstanding
+  product decisions.
 
-Next.js routes and pages.
+## Available scripts
 
-### `src/components`
+- `npm run dev`: run the local development server.
+- `npm run lint`: run ESLint.
+- `npm run build`: create a production build.
 
-Reusable React components.
-
-### `src/lib`
-
-Shared utilities and infrastructure.
-
-### `src/models`
-
-MongoDB/Mongoose models.
-
-### `src/services`
-
-Business logic and database operations.
-
-### `src/types`
-
-Shared TypeScript types.
-
-### `src/hooks`
-
-Reusable React hooks.
-
-## Development Rules
-
-- Use TypeScript.
-- Use Tailwind CSS for styling.
-- Use the existing project structure.
-- Do not create new top-level directories without discussing it with the team.
-- Do not put database logic directly inside UI components.
-- Keep reusable components in `src/components`.
-- Keep business logic in `src/services`.
-- Never commit secrets or `.env.local`.
-- Use the configured import alias `@/*`.
-
-## Git Workflow
-
-Do not push directly to `main`.
-
-Create a branch for each issue:
-
-feature/<name>
-fix/<name>
-chore/<name>
-
-All changes must go through a Pull Request.
-
-At least one team member must review a Pull Request before merging.
-
-Run linting and tests before opening a Pull Request.
+Testing, authentication, opportunity categories/types, and deployment
+choices are intentionally not locked in yet; see `structure.md`.
