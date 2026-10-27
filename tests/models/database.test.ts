@@ -2,9 +2,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { OpportunityStatus } from "@/features/opportunities/constants";
 import { Opportunity } from "@/models/Opportunity";
 import { Organization, OrganizationStatus } from "@/models/Organization";
+import { OrganizationMembership } from "@/models/OrganizationMembership";
 import { User, UserRole } from "@/models/User";
 import { clearTestDb, startTestDb, stopTestDb } from "../helpers/db";
-import { createOpportunityFixture, createOrganization, createUser } from "../helpers/factories";
+import {
+  createMembership,
+  createOpportunityFixture,
+  createOrganization,
+  createUser,
+} from "../helpers/factories";
 
 beforeAll(startTestDb);
 afterAll(stopTestDb);
@@ -111,10 +117,10 @@ describe("Opportunity", () => {
 });
 
 describe("User", () => {
-  it("requires an organization for org members", async () => {
+  it("can exist without any organization", async () => {
     await expect(
       new User({ name: "A", email: "a@test.dev", role: UserRole.ORG_MEMBER }).validate(),
-    ).rejects.toThrow();
+    ).resolves.toBeUndefined();
   });
 
   it("does not require an organization for admins", async () => {
@@ -124,17 +130,83 @@ describe("User", () => {
   });
 
   it("rejects duplicate emails", async () => {
-    const org = await createOrganization();
-    await createUser({ email: "dup@test.dev", organizationId: org._id });
-    await expect(createUser({ email: "dup@test.dev", organizationId: org._id })).rejects.toMatchObject({
+    await createUser({ email: "dup@test.dev" });
+    await expect(createUser({ email: "dup@test.dev" })).rejects.toMatchObject({ code: 11000 });
+  });
+
+  it("rejects two users linked to the same Better Auth account", async () => {
+    await createUser({ authProviderId: "auth-user-1" });
+    await expect(createUser({ authProviderId: "auth-user-1" })).rejects.toMatchObject({
       code: 11000,
     });
   });
 
+  it("allows many users that have no Better Auth link", async () => {
+    await createUser();
+    await createUser();
+    expect(await User.countDocuments({ authProviderId: { $exists: false } })).toBe(2);
+  });
+
+  it("has a unique, sparse index on authProviderId", async () => {
+    const indexes = await User.collection.indexes();
+    expect(
+      indexes.some((i) => i.key.authProviderId === 1 && i.unique && i.sparse),
+    ).toBe(true);
+  });
+
   it("keeps passwordHash out of normal queries", async () => {
-    const org = await createOrganization();
-    await createUser({ email: "p@test.dev", organizationId: org._id, passwordHash: "secret" });
+    await createUser({ email: "p@test.dev", passwordHash: "secret" });
     const user = await User.findOne({ email: "p@test.dev" });
     expect(user?.passwordHash).toBeUndefined();
+  });
+});
+
+describe("OrganizationMembership", () => {
+  it("links a user to an organization", async () => {
+    const org = await createOrganization();
+    const user = await createUser();
+
+    const membership = await createMembership(user._id, org._id);
+
+    expect(membership.userId.toString()).toBe(user.id);
+    expect(membership.organizationId.toString()).toBe(org.id);
+    expect(membership.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("lets one user belong to several organizations", async () => {
+    const [a, b] = [await createOrganization(), await createOrganization()];
+    const user = await createUser();
+    await createMembership(user._id, a._id);
+    await createMembership(user._id, b._id);
+
+    expect(await OrganizationMembership.countDocuments({ userId: user._id })).toBe(2);
+  });
+
+  it("lets one organization have several users", async () => {
+    const org = await createOrganization();
+    await createMembership((await createUser())._id, org._id);
+    await createMembership((await createUser())._id, org._id);
+
+    expect(await OrganizationMembership.countDocuments({ organizationId: org._id })).toBe(2);
+  });
+
+  it("rejects a duplicate membership", async () => {
+    const org = await createOrganization();
+    const user = await createUser();
+    await createMembership(user._id, org._id);
+
+    await expect(createMembership(user._id, org._id)).rejects.toMatchObject({ code: 11000 });
+    expect(await OrganizationMembership.countDocuments({})).toBe(1);
+  });
+
+  it("requires both a user and an organization", async () => {
+    await expect(new OrganizationMembership({}).validate()).rejects.toThrow();
+  });
+
+  it("has a unique index on user and organization", async () => {
+    const indexes = await OrganizationMembership.collection.indexes();
+    expect(
+      indexes.some((i) => i.key.userId === 1 && i.key.organizationId === 1 && i.unique),
+    ).toBe(true);
   });
 });

@@ -8,6 +8,7 @@ import {
   OpportunityType,
 } from "@/features/opportunities/constants";
 import { Opportunity } from "@/models/Opportunity";
+import { OrganizationMembership } from "@/models/OrganizationMembership";
 import { Organization, OrganizationStatus } from "@/models/Organization";
 import { User, UserRole } from "@/models/User";
 
@@ -100,6 +101,14 @@ const upsertOptions = {
   setDefaultsOnInsert: true,
 } as const;
 
+async function addMember(userId: mongoose.Types.ObjectId, organizationId: mongoose.Types.ObjectId) {
+  await OrganizationMembership.findOneAndUpdate(
+    { userId, organizationId },
+    { $set: { userId, organizationId } },
+    upsertOptions,
+  );
+}
+
 async function seed() {
   const admin = await User.findOneAndUpdate(
     { email: ADMIN_EMAIL },
@@ -123,11 +132,22 @@ async function seed() {
     );
     orgIds.set(org.slug, doc._id);
 
-    await User.findOneAndUpdate(
+    const member = await User.findOneAndUpdate(
       { email: `${org.slug}-member@seed.test` },
-      { $set: { name: `${org.name} Member`, role: UserRole.ORG_MEMBER, organizationId: doc._id } },
+      { $set: { name: `${org.name} Member`, role: UserRole.ORG_MEMBER } },
       upsertOptions,
     );
+    await addMember(member._id, doc._id);
+  }
+
+  // One account that manages two organizations.
+  const multi = await User.findOneAndUpdate(
+    { email: "multi-member@seed.test" },
+    { $set: { name: "Multi-Organization Member", role: UserRole.ORG_MEMBER } },
+    upsertOptions,
+  );
+  for (const slug of ["tech-society", "campus-robotics-club"]) {
+    await addMember(multi._id, orgIds.get(slug)!);
   }
 
   for (const { org, publishedDaysAgo, ...opp } of opportunities) {
@@ -159,7 +179,7 @@ async function seed() {
   ).length;
 
   console.log(
-    `Seeded 1 admin, ${organizations.length} organizations, ${opportunities.length} opportunities.`,
+    `Seeded 1 admin, ${organizations.length + 1} members, ${organizations.length} organizations, ${opportunities.length} opportunities.`,
   );
   console.log(`Expected publicly visible: ${visible} (includes 1 expired listing).`);
 }

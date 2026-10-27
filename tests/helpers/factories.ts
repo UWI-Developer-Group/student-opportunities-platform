@@ -1,8 +1,10 @@
 import type { Types } from "mongoose";
 import type { Actor } from "@/features/opportunities/actor";
 import { OpportunityStatus } from "@/features/opportunities/constants";
+import { listOrganizationIdsForUser } from "@/features/organizations/memberships";
 import { Opportunity, type IOpportunity } from "@/models/Opportunity";
 import { Organization, OrganizationStatus, type IOrganization } from "@/models/Organization";
+import { OrganizationMembership } from "@/models/OrganizationMembership";
 import { User, UserRole, type IUser } from "@/models/User";
 
 let counter = 0;
@@ -50,15 +52,30 @@ export async function createUser(overrides: Partial<IUser> = {}) {
   });
 }
 
-export function actorFor(user: {
-  id: string;
-  role: UserRole;
-  organizationId?: Types.ObjectId;
-}): Actor {
+export async function createMembership(
+  userId: Types.ObjectId | string,
+  organizationId: Types.ObjectId | string,
+) {
+  return OrganizationMembership.create({ userId, organizationId });
+}
+
+// An org_member who belongs to every organization given.
+export async function createMemberOf(
+  ...organizations: { _id: Types.ObjectId }[]
+) {
+  const user = await createUser();
+  for (const organization of organizations) {
+    await createMembership(user._id, organization._id);
+  }
+  return user;
+}
+
+// Builds the Actor the same way the app does: memberships come from the database.
+export async function actorFor(user: { id: string; role: UserRole }): Promise<Actor> {
   return {
     id: user.id,
     role: user.role,
-    organizationId: user.organizationId?.toString(),
+    organizationIds: await listOrganizationIdsForUser(user.id),
   };
 }
 
