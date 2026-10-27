@@ -57,9 +57,13 @@ describe("createOpportunity", () => {
 
     const created = await createOpportunity(actor, organization.id, validInput);
 
-    expect(created).toMatchObject({ slug: "robotics-club-open-day", status: OpportunityStatus.DRAFT });
+    expect(created).toMatchObject({
+      slug: "robotics-club-open-day",
+      status: OpportunityStatus.PUBLISHED,
+    });
     const stored = await Opportunity.findById(created.id);
     expect(stored?.organizationId.toString()).toBe(organization.id);
+    expect(stored?.publishedAt).toBeInstanceOf(Date);
   });
 
   it("gives a second opportunity with the same title a different slug", async () => {
@@ -111,11 +115,12 @@ describe("createOpportunity", () => {
     });
 
     const stored = await Opportunity.findById(created.id);
-    expect(stored?.status).toBe(OpportunityStatus.DRAFT);
+    expect(stored?.status).toBe(OpportunityStatus.PUBLISHED);
+    expect(stored?.publishedAt).toBeInstanceOf(Date);
     expect(stored?.organizationId.toString()).toBe(organization.id);
   });
 
-  it.each([OrganizationStatus.PENDING, OrganizationStatus.SUSPENDED, OrganizationStatus.REJECTED])(
+  it.each([OrganizationStatus.SUSPENDED, OrganizationStatus.REJECTED])(
     "is forbidden when the organization is %s",
     async (status) => {
       const { organization, actor } = await memberOf(status);
