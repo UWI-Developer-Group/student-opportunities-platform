@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "organization:create": "tsx --env-file=.env.local scripts/create-organization.ts",
+    "opportunity:create": "tsx --env-file=.env.local scripts/create-opportunity.ts",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest"

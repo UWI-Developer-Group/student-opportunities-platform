@@ -15,14 +15,29 @@ after an authentication approach is selected.
 ## Getting started
 
 1. Install dependencies with `npm install`.
-2. Copy `.env.example` to `.env.local` and configure `MONGODB_URI` and
-   `APP_URL`.
+2. Copy `.env.example` to `.env.local` and configure `MONGODB_URI`,
+   `APP_URL`, and a `BETTER_AUTH_SECRET` with at least 32 characters.
 3. Start the development server with `npm run dev`.
 4. Open [http://localhost:3000](http://localhost:3000).
 
 The public routes and initial opportunity data modules are scaffolded.
 The routes are not yet connected to the database; adding seed data and
 completing the public discovery flow are the next implementation steps.
+
+## Manually create an organization and opportunity
+
+1. Start the app with `npm run dev`.
+2. In another terminal, run `npm run organization:create` and enter the
+   organization and first member's details. This creates a Better Auth login
+   and a pending organization. An email that already has an account cannot be
+   reused.
+3. Run `npm run opportunity:create`, sign in with the new member account, and
+   enter the opportunity details.
+
+The CLIs send requests to app API routes, so account creation, validation,
+organization membership, and opportunity authorization run on the server.
+Opportunities created by pending organizations are published but remain hidden
+until the organization is active.
 
 ## Project structure
 
