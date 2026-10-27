@@ -26,6 +26,19 @@ async function requireActiveOrganization(organizationId: string) {
   }
 }
 
+async function requireOpportunityCreationOrganization(organizationId: string) {
+  const organization = await Organization.findById(organizationId).select("status");
+  if (!organization) {
+    throw new OpportunityError("not_found", "Organization not found");
+  }
+  if (
+    organization.status !== OrganizationStatus.ACTIVE &&
+    organization.status !== OrganizationStatus.PENDING
+  ) {
+    throw new OpportunityError("forbidden", "Organization cannot create opportunities");
+  }
+}
+
 // Loads an opportunity the actor may manage: admins, or members of the owning organization.
 async function loadManageable(id: string, actor: Actor) {
   const opportunity = isValidObjectId(id) ? await Opportunity.findById(id) : null;
@@ -60,13 +73,14 @@ export async function createOpportunity(
 
   const data = createOpportunitySchema.parse(input);
   await connectToDatabase();
-  await requireActiveOrganization(actor.organizationId);
+  await requireOpportunityCreationOrganization(actor.organizationId);
 
   const opportunity = await Opportunity.create({
     ...data,
     organizationId: actor.organizationId,
     slug: await generateUniqueSlug(data.title),
-    status: OpportunityStatus.DRAFT,
+    status: OpportunityStatus.PUBLISHED,
+    publishedAt: new Date(),
   });
 
   return toRef(opportunity);
