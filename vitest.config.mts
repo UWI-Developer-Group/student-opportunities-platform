@@ -13,6 +13,12 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+ 
+    env: {
+      APP_URL: "http://localhost:3000",
+      BETTER_AUTH_URL: "http://localhost:3000",
+      BETTER_AUTH_SECRET: "test-secret-that-is-at-least-32-characters-long",
+    },
     include: ["tests/**/*.test.ts"],
     testTimeout: 30_000,
     hookTimeout: 120_000, // first run downloads the MongoDB binary

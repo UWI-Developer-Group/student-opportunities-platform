@@ -14,6 +14,7 @@ import { UserRole } from "@/models/User";
 import { clearTestDb, startTestDb, stopTestDb } from "../helpers/db";
 import {
   actorFor,
+  createMemberOf,
   createOpportunityFixture,
   createOrganization,
   createUser,
@@ -35,8 +36,8 @@ const validInput = {
 
 async function memberOf(status: OrganizationStatus = OrganizationStatus.ACTIVE) {
   const organization = await createOrganization({ status });
-  const user = await createUser({ organizationId: organization._id });
-  return { organization, actor: actorFor(user) };
+  const user = await createMemberOf(organization);
+  return { organization, actor: await actorFor(user) };
 }
 
 async function adminActor() {
@@ -51,10 +52,10 @@ const draftIn = (organizationId: unknown, overrides = {}) =>
   });
 
 describe("createOpportunity", () => {
-  it("publishes an opportunity in the member's own organization with a generated slug", async () => {
+  it("creates a draft in the chosen organization with a generated slug", async () => {
     const { organization, actor } = await memberOf();
 
-    const created = await createOpportunity(actor, validInput);
+    const created = await createOpportunity(actor, organization.id, validInput);
 
     expect(created).toMatchObject({
       slug: "robotics-club-open-day",
@@ -66,20 +67,48 @@ describe("createOpportunity", () => {
   });
 
   it("gives a second opportunity with the same title a different slug", async () => {
-    const { actor } = await memberOf();
+    const { organization, actor } = await memberOf();
 
-    const first = await createOpportunity(actor, validInput);
-    const second = await createOpportunity(actor, validInput);
+    const first = await createOpportunity(actor, organization.id, validInput);
+    const second = await createOpportunity(actor, organization.id, validInput);
 
     expect(second.slug).not.toBe(first.slug);
     expect(second.slug.startsWith("robotics-club-open-day-")).toBe(true);
+  });
+
+  it("lets a member of several organizations create in each of them", async () => {
+    const [a, b] = [await createOrganization(), await createOrganization()];
+    const actor = await actorFor(await createMemberOf(a, b));
+
+    const inA = await createOpportunity(actor, a.id, validInput);
+    const inB = await createOpportunity(actor, b.id, { ...validInput, title: "Second listing title" });
+
+    expect((await Opportunity.findById(inA.id))?.organizationId.toString()).toBe(a.id);
+    expect((await Opportunity.findById(inB.id))?.organizationId.toString()).toBe(b.id);
+  });
+
+  it("is forbidden for an organization the user does not belong to", async () => {
+    const mine = await memberOf();
+    const other = await createOrganization();
+
+    await expect(createOpportunity(mine.actor, other.id, validInput)).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    expect(await Opportunity.countDocuments({})).toBe(0);
+  });
+
+  it("is forbidden for a member of one organization acting for another they are not in, even with several memberships", async () => {
+    const [a, b, c] = [await createOrganization(), await createOrganization(), await createOrganization()];
+    const actor = await actorFor(await createMemberOf(a, b));
+
+    await expect(createOpportunity(actor, c.id, validInput)).rejects.toMatchObject({ code: "forbidden" });
   });
 
   it("ignores status and organizationId smuggled into the input", async () => {
     const { organization, actor } = await memberOf();
     const other = await createOrganization();
 
-    const created = await createOpportunity(actor, {
+    const created = await createOpportunity(actor, organization.id, {
       ...validInput,
       status: "published",
       organizationId: other.id,
@@ -94,23 +123,29 @@ describe("createOpportunity", () => {
   it.each([OrganizationStatus.SUSPENDED, OrganizationStatus.REJECTED])(
     "is forbidden when the organization is %s",
     async (status) => {
-      const { actor } = await memberOf(status);
-      await expect(createOpportunity(actor, validInput)).rejects.toMatchObject({ code: "forbidden" });
+      const { organization, actor } = await memberOf(status);
+      await expect(createOpportunity(actor, organization.id, validInput)).rejects.toMatchObject({
+        code: "forbidden",
+      });
     },
   );
 
-  it("is forbidden for admins and for users without an organization", async () => {
-    await expect(createOpportunity(await adminActor(), validInput)).rejects.toMatchObject({
+  it("is forbidden for admins and for users with no organizations", async () => {
+    const organization = await createOrganization();
+
+    await expect(createOpportunity(await adminActor(), organization.id, validInput)).rejects.toMatchObject({
       code: "forbidden",
     });
     await expect(
-      createOpportunity({ id: "x", role: UserRole.ORG_MEMBER }, validInput),
+      createOpportunity({ id: "x", role: UserRole.ORG_MEMBER, organizationIds: [] }, organization.id, validInput),
     ).rejects.toMatchObject({ code: "forbidden" });
   });
 
   it("rejects invalid input", async () => {
-    const { actor } = await memberOf();
-    await expect(createOpportunity(actor, { ...validInput, applicationUrl: "javascript:alert(1)" })).rejects.toBeInstanceOf(ZodError);
+    const { organization, actor } = await memberOf();
+    await expect(
+      createOpportunity(actor, organization.id, { ...validInput, applicationUrl: "javascript:alert(1)" }),
+    ).rejects.toBeInstanceOf(ZodError);
   });
 });
 
@@ -135,6 +170,36 @@ describe("updateOpportunity", () => {
       updateOpportunity(a.actor, opportunity.id, { title: "Hijacked title" }),
     ).rejects.toMatchObject({ code: "forbidden" });
     expect((await Opportunity.findById(opportunity._id))?.title).toBe("Original title");
+  });
+
+  it("lets a member of two organizations edit opportunities in both, but not a third", async () => {
+    const [a, b, c] = [await createOrganization(), await createOrganization(), await createOrganization()];
+    const actor = await actorFor(await createMemberOf(a, b));
+    const inA = await draftIn(a._id);
+    const inB = await draftIn(b._id);
+    const inC = await draftIn(c._id, { title: "Original title" });
+
+    await updateOpportunity(actor, inA.id, { title: "Edited in A" });
+    await updateOpportunity(actor, inB.id, { title: "Edited in B" });
+    await expect(updateOpportunity(actor, inC.id, { title: "Hijacked title" })).rejects.toMatchObject({
+      code: "forbidden",
+    });
+
+    expect((await Opportunity.findById(inA._id))?.title).toBe("Edited in A");
+    expect((await Opportunity.findById(inB._id))?.title).toBe("Edited in B");
+    expect((await Opportunity.findById(inC._id))?.title).toBe("Original title");
+  });
+
+  it("lets any member of the same organization edit its opportunities", async () => {
+    const organization = await createOrganization();
+    const first = await actorFor(await createMemberOf(organization));
+    const second = await actorFor(await createMemberOf(organization));
+    const opportunity = await draftIn(organization._id);
+
+    await updateOpportunity(first, opportunity.id, { title: "Edited by first" });
+    await updateOpportunity(second, opportunity.id, { title: "Edited by second" });
+
+    expect((await Opportunity.findById(opportunity._id))?.title).toBe("Edited by second");
   });
 
   it("lets an admin edit any opportunity", async () => {

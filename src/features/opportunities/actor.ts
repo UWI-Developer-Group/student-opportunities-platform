@@ -4,5 +4,5 @@ import type { UserRole } from "@/models/User";
 export type Actor = {
   id: string;
   role: UserRole;
-  organizationId?: string;
+  organizationIds: string[]; // organizations the user belongs to
 };

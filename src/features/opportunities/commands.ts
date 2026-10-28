@@ -47,7 +47,7 @@ async function loadManageable(id: string, actor: Actor) {
   }
 
   const isAdmin = actor.role === UserRole.ADMIN;
-  const isOwner = actor.organizationId === opportunity.organizationId.toString();
+  const isOwner = actor.organizationIds.includes(opportunity.organizationId.toString());
   if (!isAdmin && !isOwner) {
     throw new OpportunityError("forbidden", "You cannot manage this opportunity");
   }
@@ -62,22 +62,27 @@ const toRef = (o: { id: string; slug: string; status: OpportunityStatus }): Oppo
 
 export async function createOpportunity(
   actor: Actor,
+  organizationId: string,
   input: unknown,
 ): Promise<OpportunityRef> {
-  if (actor.role !== UserRole.ORG_MEMBER || !actor.organizationId) {
+  // organizationId comes from the client, so it is only trusted once it matches a membership.
+  if (
+    actor.role !== UserRole.ORG_MEMBER ||
+    !actor.organizationIds.includes(organizationId)
+  ) {
     throw new OpportunityError(
       "forbidden",
-      "Only organization members can create opportunities",
+      "You can only create opportunities for organizations you belong to",
     );
   }
 
   const data = createOpportunitySchema.parse(input);
   await connectToDatabase();
-  await requireOpportunityCreationOrganization(actor.organizationId);
+  await requireActiveOrganization(organizationId);
 
   const opportunity = await Opportunity.create({
     ...data,
-    organizationId: actor.organizationId,
+    organizationId,
     slug: await generateUniqueSlug(data.title),
     status: OpportunityStatus.PUBLISHED,
     publishedAt: new Date(),

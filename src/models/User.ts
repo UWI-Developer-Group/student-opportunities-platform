@@ -1,4 +1,4 @@
-import { Schema, Types } from "mongoose";
+import { Schema } from "mongoose";
 import { baseSchemaOptions, enumValues, getOrCreateModel } from "./shared";
 
 export const UserRole = {
@@ -11,7 +11,6 @@ export interface IUser {
   name: string;
   email: string;
   role: UserRole;
-  organizationId?: Types.ObjectId;
   passwordHash?: string;
   authProviderId?: string;
   createdAt: Date;
@@ -23,18 +22,10 @@ const userSchema = new Schema<IUser>(
     name: { type: String, required: true, trim: true, maxlength: 120 },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     role: { type: String, enum: enumValues(UserRole), default: UserRole.ORG_MEMBER },
-    organizationId: {
-      type: Schema.Types.ObjectId,
-      ref: "Organization",
-      index: true,
-      // Org members must belong to an organization; admins do not.
-      required: function (this: IUser) {
-        return this.role === UserRole.ORG_MEMBER;
-      },
-    },
-    // select:false keeps the hash out of queries unless explicitly requested.
+    // Hidden from queries by default.
     passwordHash: { type: String, select: false },
-    authProviderId: { type: String },
+    // Better Auth's user id. Unique, but optional (sparse) so seeded users can omit it.
+    authProviderId: { type: String, unique: true, sparse: true },
   },
   baseSchemaOptions
 );

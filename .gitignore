@@ -41,3 +41,5 @@ atlas-credentials.env*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+scripts/migrate-memberships.ts
+src/app/api/dev/whoami/route.ts
