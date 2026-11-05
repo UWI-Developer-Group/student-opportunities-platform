@@ -39,6 +39,19 @@ async function requireOpportunityCreationOrganization(organizationId: string) {
   }
 }
 
+async function requireEditableOrganization(organizationId: string) {
+  const organization = await Organization.findById(organizationId).select("status");
+  if (!organization) {
+    throw new OpportunityError("not_found", "Organization not found");
+  }
+  if (
+    organization.status !== OrganizationStatus.ACTIVE &&
+    organization.status !== OrganizationStatus.PENDING
+  ) {
+    throw new OpportunityError("forbidden", "Organization cannot edit opportunities");
+  }
+}
+
 // Loads an opportunity the actor may manage: admins, or members of the owning organization.
 async function loadManageable(id: string, actor: Actor) {
   const opportunity = isValidObjectId(id) ? await Opportunity.findById(id) : null;
@@ -78,7 +91,7 @@ export async function createOpportunity(
 
   const data = createOpportunitySchema.parse(input);
   await connectToDatabase();
-  await requireActiveOrganization(organizationId);
+  await requireOpportunityCreationOrganization(organizationId);
 
   const opportunity = await Opportunity.create({
     ...data,
@@ -99,6 +112,10 @@ export async function updateOpportunity(
   await connectToDatabase();
   const opportunity = await loadManageable(id, actor);
 
+  if (actor.role !== UserRole.ADMIN) {
+    await requireEditableOrganization(opportunity.organizationId.toString());
+  }
+
   // Schema has no slug/status/organizationId, so they can't be changed here.
   opportunity.set(updateOpportunitySchema.parse(input));
   await opportunity.save();
@@ -112,10 +129,11 @@ export async function publishOpportunity(
 ): Promise<OpportunityRef> {
   await connectToDatabase();
   const opportunity = await loadManageable(id, actor);
-  if (opportunity.status === OpportunityStatus.PUBLISHED) return toRef(opportunity);
 
   await requireActiveOrganization(opportunity.organizationId.toString());
   createOpportunitySchema.parse(opportunity.toObject()); // must be valid and not expired
+
+  if (opportunity.status === OpportunityStatus.PUBLISHED) return toRef(opportunity);
 
   opportunity.status = OpportunityStatus.PUBLISHED;
   opportunity.publishedAt = new Date();

@@ -43,7 +43,7 @@ async function signInAs(authProviderId: string) {
 describe("createOpportunity action", () => {
   it("rejects unauthenticated requests without saving an opportunity", async () => {
     await expect(createOpportunity(validInput)).rejects.toMatchObject({
-      code: "forbidden",
+      code: "unauthenticated",
     });
     expect(await Opportunity.countDocuments()).toBe(0);
   });

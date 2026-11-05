@@ -42,14 +42,22 @@ export async function requireUser(): Promise<CurrentUser> {
 
 // Signed in AND a member of this specific organization. Admins are not members by default.
 export async function requireOrganizationMember(
-  organizationId: string,
+  organizationId?: string,
 ): Promise<CurrentUser> {
   const user = await requireUser();
-  if (
-    user.role !== UserRole.ORG_MEMBER ||
-    !user.organizationIds.includes(organizationId)
-  ) {
+  if (user.role !== UserRole.ORG_MEMBER) {
     throw new AuthError("forbidden", "You are not a member of this organization");
+  }
+
+  if (organizationId) {
+    if (!user.organizationIds.includes(organizationId)) {
+      throw new AuthError("forbidden", "You are not a member of this organization");
+    }
+    return user;
+  }
+
+  if (user.organizationIds.length !== 1) {
+    throw new AuthError("forbidden", "You must belong to exactly one organization");
   }
   return user;
 }
