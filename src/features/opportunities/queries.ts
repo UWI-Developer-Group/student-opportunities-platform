@@ -106,7 +106,7 @@ function toPublicOpportunity({
   };
 }
 
-export async function findPublicOpportunities(
+export async function listPublicOpportunities(
   filters: OpportunityFilters,
 ): Promise<PaginatedResult<PublicOpportunity>> {
   await connectToDatabase();
@@ -135,6 +135,9 @@ export async function findPublicOpportunities(
     totalPages: Math.ceil(total / limit),
   };
 }
+
+// Compatibility for existing imports; new code should use listPublicOpportunities.
+export const findPublicOpportunities = listPublicOpportunities;
 
 export async function findPublicOpportunityBySlug(
   slug: string,

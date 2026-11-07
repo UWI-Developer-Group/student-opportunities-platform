@@ -42,14 +42,22 @@ export async function createOpportunityFixture(
   });
 }
 
-export async function createUser(overrides: Partial<IUser> = {}) {
+export async function createUser(
+  overrides: Partial<IUser> & { organizationId?: Types.ObjectId | string } = {},
+) {
+  const { organizationId, ...userOverrides } = overrides;
   const n = next();
-  return User.create({
+  const user = await User.create({
     name: `User ${n}`,
     email: `user${n}@test.dev`,
     role: UserRole.ORG_MEMBER,
-    ...overrides,
+    ...userOverrides,
   });
+
+  if (organizationId) {
+    await OrganizationMembership.create({ userId: user._id, organizationId });
+  }
+  return user;
 }
 
 export async function createMembership(
