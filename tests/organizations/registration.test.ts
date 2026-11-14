@@ -179,7 +179,7 @@ describe("registerOrganization", () => {
     expect(organization.status).toBe(OrganizationStatus.PENDING);
   });
 
-  it("leaves the organization unable to publish until an admin approves it", async () => {
+  it("lets a newly registered (pending) organization create opportunities", async () => {
     const { userId, organization } = await registerOrganization(registration);
     const actor = await actorFor({ id: userId, role: UserRole.ORG_MEMBER });
 
@@ -192,9 +192,9 @@ describe("registerOrganization", () => {
         type: "in_person",
         applicationUrl: "https://example.com/apply",
       }),
-    ).rejects.toMatchObject({ code: "forbidden" });
+    ).resolves.toMatchObject({ status: "published" });
   });
-
+  
   it("rejects an email that already has an account, creating nothing", async () => {
     await createUser({ email: "ana@test.dev" });
 
