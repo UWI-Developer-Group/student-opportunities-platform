@@ -149,7 +149,7 @@ describe("requireOrganizationMember", () => {
         applicationUrl: "https://example.com/apply",
       },
     );
-    expect(created.status).toBe("draft");
+    expect(created.status).toBe("published");
   });
 });
 

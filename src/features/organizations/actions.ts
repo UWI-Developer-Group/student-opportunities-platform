@@ -3,9 +3,16 @@
 import { redirect } from "next/navigation";
 import { z, ZodError } from "zod";
 import { AuthError } from "@/features/auth/errors";
-import { requireUser } from "@/features/auth/permissions";
 import { registerOrganization } from "./registration";
-import { createPendingOrganization, OrganizationError } from "./service";
+import { requireAdmin, requireOrganizationMember, requireUser } from "@/features/auth/permissions";
+import {
+  approveOrganization,
+  createPendingOrganization,
+  OrganizationError,
+  rejectOrganization,
+  suspendOrganization,
+  updateOrganization,
+} from "./service";
 
 // Where a person lands after registering. They are signed in and their organization is pending.
 const AFTER_REGISTRATION_PATH = "/dashboard";
@@ -14,6 +21,7 @@ const AFTER_REGISTRATION_PATH = "/dashboard";
 export type FormState =
   | {
       message?: string;
+      success?: boolean;
       fieldErrors?: Record<string, string[] | undefined>;
       values?: Record<string, string>;
     }
@@ -87,4 +95,59 @@ export async function addOrganizationAction(
     return toFormState(error, formData);
   }
   redirect(AFTER_REGISTRATION_PATH);
+}
+
+// Signed-in member editing an organization's profile. Bind the id in the form:
+// useActionState(updateOrganizationAction.bind(null, organization.id), undefined)
+export async function updateOrganizationAction(
+  organizationId: string,
+  _previous: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  try {
+    const user = await requireOrganizationMember(organizationId);
+    await updateOrganization(user.id, organizationId, Object.fromEntries(formData));
+  } catch (error) {
+    return toFormState(error, formData);
+  }
+  return { success: true, message: "Profile saved." };
+}
+
+// Admin decisions. Bind the id in the form: approveOrganizationAction.bind(null, organization.id)
+async function runAdminAction(
+  formData: FormData,
+  change: (adminId: string) => Promise<unknown>,
+  message: string,
+): Promise<FormState> {
+  try {
+    const admin = await requireAdmin();
+    await change(admin.id);
+  } catch (error) {
+    return toFormState(error, formData);
+  }
+  return { success: true, message };
+}
+
+export async function approveOrganizationAction(
+  organizationId: string,
+  _previous: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  return runAdminAction(formData, (adminId) => approveOrganization(adminId, organizationId), "Organization approved.");
+}
+
+export async function rejectOrganizationAction(
+  organizationId: string,
+  _previous: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  return runAdminAction(formData, (adminId) => rejectOrganization(adminId, organizationId), "Organization rejected.");
+}
+
+export async function suspendOrganizationAction(
+  organizationId: string,
+  _previous: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  return runAdminAction(formData, (adminId) => suspendOrganization(adminId, organizationId), "Organization suspended.");
 }
