@@ -38,6 +38,53 @@ const organizationFields = {
   contactEmail: optional(email), // defaults to the account email
 };
 
+
+
+// Accepts http(s) links only. A blank string means "remove the link".
+const isHttpUrl = (value: string) => {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const clearableUrl = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine((value) => value === "" || isHttpUrl(value), {
+    message: "Must be a valid URL starting with http:// or https://",
+  })
+  .optional();
+
+// Profile edits. Every field is optional (omitted = unchanged), but at least one is required.
+// Status, slug, contact email and verification are deliberately not here: unknown keys are stripped.
+export const updateOrganizationSchema = z
+  .object({
+    name: z.string().trim().min(2, "Organization name is too short").max(120).optional(),
+    description: z
+      .string()
+      .trim()
+      .min(20, "Tell us a little more about the organization")
+      .max(2000)
+      .optional(),
+    websiteUrl: clearableUrl,
+    logoUrl: clearableUrl,
+  })
+  .refine((value) => Object.values(value).some((field) => field !== undefined), {
+    message: "Provide at least one field to update",
+  });
+
+export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
+
+
+
+
+
+
+
 // Signed-in user registering an (additional) organization.
 export const organizationDetailsSchema = z.object(organizationFields);
 
