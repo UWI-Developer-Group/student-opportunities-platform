@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
     "create-admin": "tsx --conditions=react-server --env-file=.env.local scripts/create-admin.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run lint && npm test"
   },
   "dependencies": {
     "@better-auth/mongo-adapter": "^1.7.12",
