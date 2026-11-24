@@ -7,7 +7,7 @@ export type OpportunityCardData = {
   summary: string;
   category: string;
   organizationName: string;
-  imageUrl: string;
+  imageUrl?: string;
 };
 
 export function OpportunityCard({
