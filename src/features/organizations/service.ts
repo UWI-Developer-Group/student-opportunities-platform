@@ -4,7 +4,10 @@ import { isValidObjectId } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { Organization, OrganizationStatus } from "@/models/Organization";
 import { User, UserRole } from "@/models/User";
-import { addOrganizationMember, listOrganizationIdsForUser } from "./memberships";
+import {
+  addOrganizationMember,
+  listOrganizationIdsForUser,
+} from "./memberships";
 import { organizationDetailsSchema, updateOrganizationSchema } from "./schemas";
 
 export type OrganizationErrorCode =
@@ -60,7 +63,10 @@ export async function createPendingOrganization(
   const user = isValidObjectId(userId) ? await User.findById(userId) : null;
   if (!user) throw new OrganizationError("not_found", "User not found");
   if (user.role !== UserRole.ORG_MEMBER) {
-    throw new OrganizationError("forbidden", "Only organization members can register organizations");
+    throw new OrganizationError(
+      "forbidden",
+      "Only organization members can register organizations",
+    );
   }
 
   // Status, slug and verification are never taken from input: a new organization is always pending.
@@ -81,7 +87,11 @@ export async function createPendingOrganization(
     throw error;
   }
 
-  return { id: organization.id, slug: organization.slug, status: organization.status };
+  return {
+    id: organization.id,
+    slug: organization.slug,
+    status: organization.status,
+  };
 }
 
 // Lets a member edit their organization's profile. Only the fields in updateOrganizationSchema
@@ -103,29 +113,66 @@ export async function updateOrganization(
     user?.role === UserRole.ORG_MEMBER &&
     (await listOrganizationIdsForUser(userId)).includes(organizationId);
   if (!isMember) {
-    throw new OrganizationError("forbidden", "You do not belong to this organization");
+    throw new OrganizationError(
+      "forbidden",
+      "You do not belong to this organization",
+    );
   }
 
   const organization = await Organization.findById(organizationId);
-  if (!organization) throw new OrganizationError("not_found", "Organization not found");
+  if (!organization)
+    throw new OrganizationError("not_found", "Organization not found");
+
+  // Rejected organizations cannot edit. Pending, active and suspended ones can.
+  if (organization.status === OrganizationStatus.REJECTED) {
+    throw new OrganizationError(
+      "forbidden",
+      "Rejected organizations cannot edit their profile",
+    );
+  }
 
   if (changes.name !== undefined) organization.name = changes.name;
-  if (changes.description !== undefined) organization.description = changes.description;
+  if (changes.description !== undefined)
+    organization.description = changes.description;
   // A blank link is removed rather than stored as an empty string.
-  if (changes.websiteUrl !== undefined) organization.websiteUrl = changes.websiteUrl || undefined;
-  if (changes.logoUrl !== undefined) organization.logoUrl = changes.logoUrl || undefined;
+  if (changes.websiteUrl !== undefined)
+    organization.websiteUrl = changes.websiteUrl || undefined;
+  if (changes.logoUrl !== undefined)
+    organization.logoUrl = changes.logoUrl || undefined;
   await organization.save();
 
-  return { id: organization.id, slug: organization.slug, status: organization.status };
+  return {
+    id: organization.id,
+    slug: organization.slug,
+    status: organization.status,
+  };
 }
 
 // Which statuses each admin decision may start from. Anything else is refused, so an admin
 // cannot, for example, "reject" an organization that is already live (that is what suspend is for).
-// Approving also reinstates suspended organizations and reverses a mistaken rejection.
+// Decision (PR review): approve also reinstates suspended organizations and reverses a mistaken
+// rejection, so there is no separate reinstatement action. Reject is only for pending organizations.
+
 const STATUS_CHANGES = {
-  approve: { to: OrganizationStatus.ACTIVE, from: [OrganizationStatus.PENDING, OrganizationStatus.REJECTED, OrganizationStatus.SUSPENDED], done: "approved" },
-  reject: { to: OrganizationStatus.REJECTED, from: [OrganizationStatus.PENDING], done: "rejected" },
-  suspend: { to: OrganizationStatus.SUSPENDED, from: [OrganizationStatus.ACTIVE], done: "suspended" },
+  approve: {
+    to: OrganizationStatus.ACTIVE,
+    from: [
+      OrganizationStatus.PENDING,
+      OrganizationStatus.REJECTED,
+      OrganizationStatus.SUSPENDED,
+    ],
+    done: "approved",
+  },
+  reject: {
+    to: OrganizationStatus.REJECTED,
+    from: [OrganizationStatus.PENDING],
+    done: "rejected",
+  },
+  suspend: {
+    to: OrganizationStatus.SUSPENDED,
+    from: [OrganizationStatus.ACTIVE],
+    done: "suspended",
+  },
 } as const;
 
 async function changeOrganizationStatus(
@@ -137,9 +184,14 @@ async function changeOrganizationStatus(
 
   // Same rule as requireAdmin in auth/permissions.ts. Being a member of an organization
   // never makes someone an admin.
-  const admin = isValidObjectId(adminId) ? await User.findById(adminId).select("role") : null;
+  const admin = isValidObjectId(adminId)
+    ? await User.findById(adminId).select("role")
+    : null;
   if (!admin || admin.role !== UserRole.ADMIN) {
-    throw new OrganizationError("forbidden", "Only admins can change an organization's status");
+    throw new OrganizationError(
+      "forbidden",
+      "Only admins can change an organization's status",
+    );
   }
   if (!isValidObjectId(organizationId)) {
     throw new OrganizationError("not_found", "Organization not found");
@@ -150,20 +202,31 @@ async function changeOrganizationStatus(
   // moment cannot both succeed. Only approval records who verified the organization.
   const organization = await Organization.findOneAndUpdate(
     { _id: organizationId, status: { $in: [...from] } },
-    { $set: to === OrganizationStatus.ACTIVE ? { status: to, verifiedAt: new Date(), verifiedBy: admin._id } : { status: to } },
-    { new: true },
+    {
+      $set:
+        to === OrganizationStatus.ACTIVE
+          ? { status: to, verifiedAt: new Date(), verifiedBy: admin._id }
+          : { status: to },
+    },
+    { returnDocument: "after" },
   );
 
   if (!organization) {
-    const current = await Organization.findById(organizationId).select("status");
-    if (!current) throw new OrganizationError("not_found", "Organization not found");
+    const current =
+      await Organization.findById(organizationId).select("status");
+    if (!current)
+      throw new OrganizationError("not_found", "Organization not found");
     throw new OrganizationError(
       "invalid_status",
       `This organization is ${current.status}, so it cannot be ${done}`,
     );
   }
 
-  return { id: organization.id, slug: organization.slug, status: organization.status };
+  return {
+    id: organization.id,
+    slug: organization.slug,
+    status: organization.status,
+  };
 }
 
 export const approveOrganization = (adminId: string, organizationId: string) =>

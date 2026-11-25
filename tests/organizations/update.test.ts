@@ -4,13 +4,18 @@ import { updateOrganization } from "@/features/organizations/service";
 import { Organization, OrganizationStatus } from "@/models/Organization";
 import { User, UserRole } from "@/models/User";
 import { clearTestDb, startTestReplicaSetDb, stopTestDb } from "../helpers/db";
-import { createMemberOf, createOrganization, createUser } from "../helpers/factories";
+import {
+  createMemberOf,
+  createOrganization,
+  createUser,
+} from "../helpers/factories";
 
 beforeAll(startTestReplicaSetDb);
 afterAll(stopTestDb);
 beforeEach(clearTestDb);
 
-const LONG_DESCRIPTION = "A description that is comfortably longer than twenty characters.";
+const LONG_DESCRIPTION =
+  "A description that is comfortably longer than twenty characters.";
 
 describe("updateOrganization", () => {
   it("lets a member update the name, description, website and logo", async () => {
@@ -55,7 +60,10 @@ describe("updateOrganization", () => {
     });
     const member = await createMemberOf(org);
 
-    await updateOrganization(member.id, org.id, { websiteUrl: "", logoUrl: "  " });
+    await updateOrganization(member.id, org.id, {
+      websiteUrl: "",
+      logoUrl: "  ",
+    });
 
     const stored = await Organization.findById(org.id);
     expect(stored?.websiteUrl).toBeUndefined();
@@ -74,31 +82,46 @@ describe("updateOrganization", () => {
   });
 
   it("lets a member of a pending organization edit it, and keeps it pending", async () => {
-    const org = await createOrganization({ status: OrganizationStatus.PENDING });
+    const org = await createOrganization({
+      status: OrganizationStatus.PENDING,
+    });
     const member = await createMemberOf(org);
 
-    const result = await updateOrganization(member.id, org.id, { name: "Better Name" });
+    const result = await updateOrganization(member.id, org.id, {
+      name: "Better Name",
+    });
 
-    expect(result).toMatchObject({ id: org.id, status: OrganizationStatus.PENDING });
+    expect(result).toMatchObject({
+      id: org.id,
+      status: OrganizationStatus.PENDING,
+    });
   });
 
   it("keeps the slug when the name changes", async () => {
     const org = await createOrganization({ slug: "stable-slug" });
     const member = await createMemberOf(org);
 
-    const result = await updateOrganization(member.id, org.id, { name: "Totally Different" });
+    const result = await updateOrganization(member.id, org.id, {
+      name: "Totally Different",
+    });
 
     expect(result.slug).toBe("stable-slug");
     expect((await Organization.findById(org.id))?.slug).toBe("stable-slug");
   });
 
   it("supports a user who belongs to several organizations, but only those", async () => {
-    const [a, b, c] = [await createOrganization(), await createOrganization(), await createOrganization()];
+    const [a, b, c] = [
+      await createOrganization(),
+      await createOrganization(),
+      await createOrganization(),
+    ];
     const member = await createMemberOf(a, b);
 
     await updateOrganization(member.id, a.id, { name: "A Renamed" });
     await updateOrganization(member.id, b.id, { name: "B Renamed" });
-    await expect(updateOrganization(member.id, c.id, { name: "C Renamed" })).rejects.toMatchObject({
+    await expect(
+      updateOrganization(member.id, c.id, { name: "C Renamed" }),
+    ).rejects.toMatchObject({
       code: "forbidden",
     });
 
@@ -109,7 +132,9 @@ describe("updateOrganization", () => {
     const [a, b] = [await createOrganization(), await createOrganization()];
     const member = await createMemberOf(a);
 
-    await expect(updateOrganization(member.id, b.id, { name: "Hijacked" })).rejects.toMatchObject({
+    await expect(
+      updateOrganization(member.id, b.id, { name: "Hijacked" }),
+    ).rejects.toMatchObject({
       code: "forbidden",
     });
 
@@ -122,19 +147,23 @@ describe("updateOrganization", () => {
     const admin = await createUser({ role: UserRole.ADMIN });
 
     for (const user of [outsider, admin]) {
-      await expect(updateOrganization(user.id, org.id, { name: "Nope" })).rejects.toMatchObject({
+      await expect(
+        updateOrganization(user.id, org.id, { name: "Nope" }),
+      ).rejects.toMatchObject({
         code: "forbidden",
       });
     }
     expect((await Organization.findById(org.id))?.name).toBe(org.name);
   });
 
-    it("forbids an admin even when a membership row exists", async () => {
+  it("forbids an admin even when a membership row exists", async () => {
     const org = await createOrganization();
     const admin = await createMemberOf(org);
     await User.updateOne({ _id: admin._id }, { role: UserRole.ADMIN });
 
-    await expect(updateOrganization(admin.id, org.id, { name: "Nope" })).rejects.toMatchObject({
+    await expect(
+      updateOrganization(admin.id, org.id, { name: "Nope" }),
+    ).rejects.toMatchObject({
       code: "forbidden",
     });
     expect((await Organization.findById(org.id))?.name).toBe(org.name);
@@ -148,7 +177,9 @@ describe("updateOrganization", () => {
       [member.id, "not-an-id"],
       ["not-an-id", "64b7f0f2f0f0f0f0f0f0f0f0"],
     ]) {
-      await expect(updateOrganization(userId, organizationId, { name: "Nope" })).rejects.toMatchObject({
+      await expect(
+        updateOrganization(userId, organizationId, { name: "Nope" }),
+      ).rejects.toMatchObject({
         code: "forbidden",
       });
     }
@@ -194,8 +225,38 @@ describe("updateOrganization", () => {
     const org = await createOrganization();
     const member = await createMemberOf(org);
 
-    await expect(updateOrganization(member.id, org.id, input)).rejects.toBeInstanceOf(ZodError);
+    await expect(
+      updateOrganization(member.id, org.id, input),
+    ).rejects.toBeInstanceOf(ZodError);
 
     expect((await Organization.findById(org.id))?.name).toBe(org.name);
+  });
+
+  it("does not let a rejected organization's members edit it", async () => {
+    const org = await createOrganization({
+      status: OrganizationStatus.REJECTED,
+    });
+    const member = await createMemberOf(org);
+
+    await expect(
+      updateOrganization(member.id, org.id, { name: "Nope" }),
+    ).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    expect((await Organization.findById(org.id))?.name).toBe(org.name);
+  });
+
+  it("lets a suspended organization's members edit it, and keeps it suspended", async () => {
+    const org = await createOrganization({
+      status: OrganizationStatus.SUSPENDED,
+    });
+    const member = await createMemberOf(org);
+
+    const result = await updateOrganization(member.id, org.id, {
+      name: "Fixing Things",
+    });
+
+    expect(result.status).toBe(OrganizationStatus.SUSPENDED);
+    expect((await Organization.findById(org.id))?.name).toBe("Fixing Things");
   });
 });
